@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Demo of correct and incorrect usage of RSA, ECC, and Hash using pyca/cryptography and hashlib.
+Demo of correct and incorrect usage of RSA, ECC, and Hash using hashlib and pyca/cryptography.
 Correct: strong parameters, modern algorithms.
 Incorrect: weak parameters, outdated algorithms.
+Hash: using hashlib (since cryptography does not provide MD5).
 """
 import hashlib
 from cryptography.hazmat.primitives import hashes, serialization
@@ -12,13 +13,11 @@ from cryptography.exceptions import InvalidKey
 import os
 
 # ------------------------------
-# Hash section
+# Hash section (using hashlib)
 def hash_correct():
     """Correct: SHA-256"""
     data = b'Message to hash'
-    digest = hashes.Hash(hashes.SHA256())
-    digest.update(data)
-    hash_val = digest.finalize()
+    hash_val = hashlib.sha256(data).digest()
     print(f'[Hash Correct] SHA-256: {hash_val.hex()}')
     return hash_val
 
