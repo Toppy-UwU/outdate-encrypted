@@ -1,75 +1,138 @@
 #!/usr/bin/env python3
 """
-Example of outdated encryption algorithms using pyca/cryptography library.
-DO NOT USE IN PRODUCTION.
+Examples of RSA, ECC, and hash algorithms using pyca/cryptography.
+These are shown for educational purposes; ensure proper usage in production.
 """
-import hashlib
-from cryptography.hazmat.primitives.ciphers.algorithms import DES, TripleDES
-from cryptography.hazmat.primitives.ciphers import Cipher, modes
-from cryptography.hazmat.primitives import padding
-from cryptography.hazmat.backends import default_backend
-from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa, ec, padding
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 import os
 
-def demo_md5():
-    """MD5 is cryptographically broken and unsuitable for further use."""
-    data = b'Secret message'
-    md5_hash = hashlib.md5(data).hexdigest()
-    print(f'MD5 of {data}: {md5_hash}')
-    return md5_hash
+def demo_hash():
+    """Demonstrate SHA-256 hash."""
+    data = b'Message to hash'
+    digest = hashes.Hash(hashes.SHA256())
+    digest.update(data)
+    hash_value = digest.finalize()
+    print(f'Input: {data}')
+    print(f'SHA-256: {hash_value.hex()}')
+    return hash_value
 
-def demo_des():
-    """DES is outdated due to its small key size (56-bit)."""
-    key = os.urandom(8)  # DES key size 64 bits (8 bytes)
-    iv = os.urandom(8)   # DES block size 64 bits
-    cipher = Cipher(DES(key), modes.CBC(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    padder = padding.PKCS7(DES.block_size).padder()
-    data = b'Secret12'  # will be padded
-    padded_data = padder.update(data) + padder.finalize()
-    encrypted = encryptor.update(padded_data) + encryptor.finalize()
-    print(f'DES key: {key.hex()}')
-    print(f'IV: {iv.hex()}')
-    print(f'Encrypted: {encrypted.hex()}')
-    # Decrypt to verify
-    decryptor = Cipher(DES(key), modes.CBC(iv), backend=default_backend()).decryptor()
-    unpadder = padding.PKCS7(DES.block_size).unpadder()
-    decrypted_padded = decryptor.update(encrypted) + decryptor.finalize()
+def demo_rsa():
+    """Demonstrate RSA encryption/decryption (OAEP) and signing."""
+    # Generate private key
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+    public_key = private_key.public_key()
+    
+    # Encryption
+    message = b'Secret RSA message'
+    ciphertext = public_key.encrypt(
+        message,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    print(f'RSA encrypted: {ciphertext.hex()[:64]}...')
+    
+    # Decryption
+    plaintext = private_key.decrypt(
+        ciphertext,
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )
+    print(f'RSA decrypted: {plaintext}')
+    
+    # Signing
+    signature = private_key.sign(
+        message,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256()
+    )
+    print(f'RSA signature: {signature.hex()[:64]}...')
+    
+    # Verification
     try:
-        decrypted = unpadder.update(decrypted_padded) + unpadder.finalize()
+        public_key.verify(
+            signature,
+            message,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        print('RSA signature valid')
     except Exception as e:
-        decrypted = b''
-    print(f'Decrypted: {decrypted}')
-    return encrypted
+        print('RSA signature verification failed:', e)
+    
+    return private_key, public_key
 
-def demo_3des():
-    """Triple DES is considered obsolete and vulnerable to meet-in-the-middle attacks."""
-    key = os.urandom(24)  # TripleDES key size 168 bits (24 bytes)
-    iv = os.urandom(8)    # block size 64 bits
-    cipher = Cipher(TripleDES(key), modes.CBC(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    padder = padding.PKCS7(TripleDES.block_size).padder()
-    data = b'Secret1234'  # will be padded
-    padded_data = padder.update(data) + padder.finalize()
-    encrypted = encryptor.update(padded_data) + encryptor.finalize()
-    print(f'3DES key: {key.hex()}')
-    print(f'IV: {iv.hex()}')
-    print(f'Encrypted: {encrypted.hex()}')
-    # Decrypt to verify
-    decryptor = Cipher(TripleDES(key), modes.CBC(iv), backend=default_backend()).decryptor()
-    unpadder = padding.PKCS7(TripleDES.block_size).unpadder()
-    decrypted_padded = decryptor.update(encrypted) + decryptor.finalize()
+def demo_ecc():
+    """Demonstrate Elliptic Curve Diffie-Hellman (ECDH) and ECDSA signing."""
+    # Generate ECC private key (SECP256R1)
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+    
+    # ECDH: derive shared secret
+    # Generate another key pair for demonstration
+    private_key2 = ec.generate_private_key(ec.SECP256R1())
+    public_key2 = private_key2.public_key()
+    
+    shared_key1 = private_key.exchange(ec.ECDH(), public_key2)
+    shared_key2 = private_key2.exchange(ec.ECDH(), public_key)
+    # Use HKDF to derive a key
+    derived_key1 = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b'handshake data'
+    ).derive(shared_key1)
+    derived_key2 = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b'handshake data'
+    ).derive(shared_key2)
+    print(f'ECDH shared key matches: {derived_key1 == derived_key2}')
+    print(f'Derived key (hex): {derived_key1.hex()}')
+    
+    # ECDSA signing
+    message = b'Message for ECDSA'
+    signature = private_key.sign(
+        message,
+        ec.ECDSA(hashes.SHA256())
+    )
+    print(f'ECDSA signature: {signature.hex()[:64]}...')
+    
+    # Verivation
     try:
-        decrypted = unpadder.update(decrypted_padded) + unpadder.finalize()
+        public_key.verify(
+            signature,
+            message,
+            ec.ECDSA(hashes.SHA256())
+        )
+        print('ECDSA signature valid')
     except Exception as e:
-        decrypted = b''
-    print(f'Decrypted: {decrypted}')
-    return encrypted
+        print('ECDSA signature verification failed:', e)
+    
+    return private_key, public_key
 
 if __name__ == '__main__':
-    print('=== Outdated Encryption Demo using pyca/cryptography ===')
-    demo_md5()
+    print('=== Hash, RSA, ECC Demo using pyca/cryptography ===')
     print()
-    demo_des()
+    demo_hash()
     print()
-    demo_3des()
+    demo_rsa()
+    print()
+    demo_ecc()
