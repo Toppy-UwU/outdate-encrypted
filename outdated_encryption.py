@@ -1,40 +1,25 @@
 #!/usr/bin/env python3
 """
-Demo of correct and incorrect usage of RSA, ECC, and Hash using hashlib and pyca/cryptography.
-Correct: strong parameters, modern algorithms.
-Incorrect: weak parameters, outdated algorithms.
-Hash: using hashlib (since cryptography does not provide MD5).
+Examples of correct and incorrect RSA usage using pyca/cryptography.
+For educational purposes only.
 """
-import hashlib
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec, padding
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.exceptions import InvalidKey
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.exceptions import InvalidSignature
 import os
 
-# ------------------------------
-# Hash section (using hashlib)
-def hash_correct():
-    """Correct: SHA-256"""
-    data = b'Message to hash'
-    hash_val = hashlib.sha256(data).digest()
-    print(f'[Hash Correct] SHA-256: {hash_val.hex()}')
-    return hash_val
-
-def hash_incorrect():
-    """Incorrect: MD5 (cryptographically broken)"""
-    data = b'Message to hash'
-    hash_val = hashlib.md5(data).digest()
-    print(f'[Hash Incorrect] MD5: {hash_val.hex()}')
-    return hash_val
-
-# RSA section
 def rsa_correct():
-    """Correct: RSA 2048-bit with OAEP-PSS"""
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    """Correct: RSA 2048-bit with OAEP encryption and PSS signing"""
+    print('=== Correct RSA ===')
+    # Generate private key
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
     public_key = private_key.public_key()
-    message = b'Secret RSA message'
-    # Encryption
+    
+    # Encryption with OAEP
+    message = b'Secret message for RSA'
     ciphertext = public_key.encrypt(
         message,
         padding.OAEP(
@@ -43,6 +28,8 @@ def rsa_correct():
             label=None
         )
     )
+    print(f'Ciphertext length: {len(ciphertext)} bytes')
+    
     # Decryption
     plaintext = private_key.decrypt(
         ciphertext,
@@ -52,7 +39,9 @@ def rsa_correct():
             label=None
         )
     )
-    # Signing
+    print(f'Decryption matches: {plaintext == message}')
+    
+    # Signing with PSS
     signature = private_key.sign(
         message,
         padding.PSS(
@@ -61,7 +50,9 @@ def rsa_correct():
         ),
         hashes.SHA256()
     )
-    # Verify
+    print(f'Signature length: {len(signature)} bytes')
+    
+    # Verification
     try:
         public_key.verify(
             signature,
@@ -72,104 +63,62 @@ def rsa_correct():
             ),
             hashes.SHA256()
         )
-        sig_ok = True
-    except Exception:
-        sig_ok = False
-    print(f'[RSA Correct] Key size: {private_key.key_size} bits')
-    print(f'[RSA Correct] Encryption/decryption OK: {plaintext == message}')
-    print(f'[RSA Correct] Signature valid: {sig_ok}')
+        print('Signature verification: SUCCESS')
+    except InvalidSignature:
+        print('Signature verification: FAILED')
+    
     return private_key, public_key
 
 def rsa_incorrect():
-    """Incorrect: RSA 512-bit (too small) with PKCS1v15 (considered less secure)"""
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=512)  # weak
+    """Incorrect: RSA 1024-bit (too small) with PKCS1v15 padding (considered weak)"""
+    print('\n=== Incorrect RSA ===')
+    # Generate weak key (1024-bit is considered insufficient today)
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=1024,  # weak key size
+    )
     public_key = private_key.public_key()
-    message = b'Secret RSA message'
+    
+    message = b'Secret message for RSA'
+    
+    # Encryption with PKCS1v15 (known to have vulnerabilities if used incorrectly)
     try:
         ciphertext = public_key.encrypt(
             message,
-            padding.PKCS1v15()  # outdated padding
+            padding.PKCS1v15()
         )
-        plaintext = private_key.decrypt(ciphertext, padding.PKCS1v15())
-        enc_ok = (plaintext == message)
+        print(f'Ciphertext length: {len(ciphertext)} bytes')
+        # Decryption
+        plaintext = private_key.decrypt(
+            ciphertext,
+            padding.PKCS1v15()
+        )
+        print(f'Decryption matches: {plaintext == message}')
     except Exception as e:
-        print(f'[RSA Incorrect] Encryption error: {e}')
-        enc_ok = False
-    # Signing with PKCS1v15 (less preferred)
+        print(f'Encryption/decryption error: {e}')
+        plaintext = b''
+    
+    # Signing with PKCS1v15 (less preferred than PSS)
     try:
-        signature = private_key.sign(message, padding.PKCS1v15(), hashes.SHA256())
-        public_key.verify(signature, message, padding.PKCS1v15(), hashes.SHA256())
-        sig_ok = True
+        signature = private_key.sign(
+            message,
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        print(f'Signature length: {len(signature)} bytes')
+        # Verification
+        public_key.verify(
+            signature,
+            message,
+            padding.PKCS1v15(),
+            hashes.SHA256()
+        )
+        print('Signature verification: SUCCESS')
     except Exception as e:
-        print(f'[RSA Incorrect] Signature error: {e}')
-        sig_ok = False
-    print(f'[RSA Incorrect] Key size: {private_key.key_size} bits')
-    print(f'[RSA Incorrect] Encryption/decryption OK: {enc_ok}')
-    print(f'[RSA Incorrect] Signature valid: {sig_ok}')
+        print(f'Signature error: {e}')
+    
     return private_key, public_key
 
-# ECC section
-def ecc_correct():
-    """Correct: SECP256R1 for ECDH and ECDSA"""
-    # ECDH
-    priv1 = ec.generate_private_key(ec.SECP256R1())
-    pub1 = priv1.public_key()
-    priv2 = ec.generate_private_key(ec.SECP256R1())
-    pub2 = priv2.public_key()
-    shared1 = priv1.exchange(ec.ECDH(), pub2)
-    shared2 = priv2.exchange(ec.ECDH(), pub1)
-    # Derive key
-    derived1 = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b'handshake').derive(shared1)
-    derived2 = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=b'handshake').derive(shared2)
-    ecdh_ok = derived1 == derived2
-    # ECDSA
-    message = b'Message for ECDSA'
-    priv_sign = ec.generate_private_key(ec.SECP256R1())
-    pub_sign = priv_sign.public_key()
-    signature = priv_sign.sign(message, ec.ECDSA(hashes.SHA256()))
-    try:
-        pub_sign.verify(signature, message, ec.ECDSA(hashes.SHA256()))
-        sig_ok = True
-    except Exception:
-        sig_ok = False
-    print(f'[ECC Correct] ECDH shared key matches: {ecdh_ok}')
-    print(f'[ECC Correct] ECDSA signature valid: {sig_ok}')
-    return priv1, pub1, priv_sign, pub_sign
-
-def ecc_incorrect():
-    """Incorrect: SECP192R1 (smaller curve) and using ECDH without KDF (raw shared secret)"""
-    # Weak curve
-    priv1 = ec.generate_private_key(ec.SECP192R1())
-    pub1 = priv1.public_key()
-    priv2 = ec.generate_private_key(ec.SECP192R1())
-    pub2 = priv2.public_key()
-    shared1 = priv1.exchange(ec.ECDH(), pub2)
-    shared2 = priv2.exchange(ec.ECDH(), pub1)
-    # No KDF, just compare raw (should match but weak)
-    ecdh_ok = shared1 == shared2
-    # ECDSA with same weak curve
-    message = b'Message for ECDSA'
-    priv_sign = ec.generate_private_key(ec.SECP192R1())
-    pub_sign = priv_sign.public_key()
-    signature = priv_sign.sign(message, ec.ECDSA(hashes.SHA256()))
-    try:
-        pub_sign.verify(signature, message, ec.ECDSA(hashes.SHA256()))
-        sig_ok = True
-    except Exception:
-        sig_ok = False
-    print(f'[ECC Incorrect] Curve: SECP192R1 (192-bit)')
-    print(f'[ECC Incorrect] ECDH shared key matches (raw): {ecdh_ok}')
-    print(f'[ECC Incorrect] ECDSA signature valid: {sig_ok}')
-    return priv1, pub1, priv_sign, pub_sign
-
 if __name__ == '__main__':
-    print('=== Correct vs Incorrect Usage Demo ===')
-    print()
-    hash_correct()
-    hash_incorrect()
-    print()
     rsa_correct()
     rsa_incorrect()
-    print()
-    ecc_correct()
-    ecc_incorrect()
